@@ -1,0 +1,10 @@
+[
+  {
+    "type": "sqlite",
+    "path": "c:\\Users\\Jesus Quintero\\Documents\\mi-backend\\flaitesny.db"
+  },
+  {
+    "type": "sqlite",
+    "path": "c:\\Users\\Jesus Quintero\\Documents\\mi-backend\\flaitesnytest.db"
+  }
+]
