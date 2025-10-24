@@ -6,5 +6,9 @@
   {
     "type": "sqlite",
     "path": "c:\\Users\\Jesus Quintero\\Documents\\mi-backend\\flaitesnytest.db"
+  },
+  {
+    "type": "sqlite",
+    "path": "c:\\Users\\Jesus Quintero\\Documents\\GitHub\\backend-flny-rp\\flaitesnytest.db"
   }
 ]

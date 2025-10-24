@@ -25,6 +25,9 @@ const PRODUCT_TO_ROLE_MAP = {
     'vip_gold':   process.env.VIP_ORO_ROLE_ID
 };
 
+console.log("CLIENT ID:", process.env.DISCORD_CLIENT_ID);
+console.log("CLIENT SECRET:", process.env.DISCORD_CLIENT_SECRET);
+
 // 4. Conectar y configurar la base de datos
 const db = new sqlite3.Database('./flaitesnytest.db', (err) => {
     if (err) { return console.error('Error al conectar con la base de datos:', err.message); }
@@ -225,6 +228,7 @@ app.post('/admin/coupons/toggle', verifyAdmin, (req, res) => {
     });
 });
 
+
 app.delete('/admin/coupons/:id', verifyAdmin, (req, res) => {
     // Obtenemos el ID de los parámetros de la URL (ej: /admin/coupons/12)
     const { id } = req.params; 
@@ -357,6 +361,37 @@ app.get('/api/profile', verifyToken, async (req, res) => {
     } catch (error) {
         res.status(500).json({ message: "Error al obtener los datos del perfil." });
     }
+});
+
+app.get('/api/users/search', verifyToken, (req, res) => {
+    const searchTerm = req.query.term;
+    const currentUser = req.user.username; // Obtenemos el usuario que realiza la búsqueda desde el token
+
+    if (!searchTerm || searchTerm.length < 2) {
+        // No buscamos si el término es muy corto para evitar resultados masivos
+        return res.json([]);
+    }
+
+    // La consulta busca usuarios cuyo nombre contenga el término de búsqueda.
+    // Usamos LIKE con '%' que actúa como un comodín.
+    // También nos aseguramos de no incluir al usuario que está haciendo la búsqueda.
+    const sql = `
+        SELECT username, avatar 
+        FROM users 
+        WHERE username LIKE ? AND username != ? 
+        LIMIT 10
+    `;
+    
+    // Le añadimos los comodines '%' al término de búsqueda
+    const searchValue = `%${searchTerm}%`;
+
+    db.all(sql, [searchValue, currentUser], (err, rows) => {
+        if (err) {
+            console.error("Error al buscar usuarios:", err.message);
+            return res.status(500).json({ message: "Error en la base de datos." });
+        }
+        res.status(200).json(rows);
+    });
 });
 
 app.post('/create-test-order', async (req, res) => { // La convertimos en async
