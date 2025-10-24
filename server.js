@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 // 2. Configuración inicial
 const FIVEM_SERVER_IP = '127.0.0.1'; // <-- CAMBIA ESTO
 const FIVEM_SERVER_PORT = '30120';    // <-- CAMBIA ESTO
+const FRONTEND_URL = 'http://127.0.0.1:3000'; // <-- ¡NUEVO! CAMBIA ESTO SI USAS OTRO PUERTO
 
 const app = express();
 const port = 3002;
@@ -129,10 +130,10 @@ app.get('/auth/discord/callback', async (req, res) => {
             if (err) return res.status(500).send("Error del servidor");
             if (user) {
                 const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
-                res.redirect(`http://127.0.0.1:3000/index.html?token=${token}`);
+                res.redirect(`${FRONTEND_URL}/index.html?token=${token}`);
             } else {
                 const avatarUrl = `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`;
-                res.redirect(`http://127.0.0.1:3000/vincular.html?discordId=${discordUser.id}&username=${discordUser.username}&avatar=${avatarUrl}`);
+                res.redirect(`${FRONTEND_URL}/vincular.html?discordId=${discordUser.id}&username=${discordUser.username}&avatar=${avatarUrl}`);
             }
         });
     } catch (error) {
