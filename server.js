@@ -9,7 +9,6 @@ const jwt = require('jsonwebtoken');
 // 2. Configuración inicial
 const FIVEM_SERVER_IP = '127.0.0.1'; // <-- CAMBIA ESTO
 const FIVEM_SERVER_PORT = '30120';    // <-- CAMBIA ESTO
-const FRONTEND_URL = 'http://127.0.0.1:3000'; // <-- ¡NUEVO! CAMBIA ESTO SI USAS OTRO PUERTO
 
 const app = express();
 const port = 3002;
@@ -23,9 +22,7 @@ app.use(express.json());
 const PRODUCT_TO_ROLE_MAP = {
     'vip_bronze': process.env.VIP_BRONCE_ROLE_ID,
     'vip_silver': process.env.VIP_PLATA_ROLE_ID,
-    'vip_gold':   process.env.VIP_ORO_ROLE_ID,
-    'vip_diamond':   process.env.VIP_DIAMANTE_ROLE_ID,
-    'vip_esmerald':   process.env.VIP_ESMERALDA_ROLE_ID
+    'vip_gold':   process.env.VIP_ORO_ROLE_ID
 };
 
 // 4. Conectar y configurar la base de datos
@@ -130,10 +127,10 @@ app.get('/auth/discord/callback', async (req, res) => {
             if (err) return res.status(500).send("Error del servidor");
             if (user) {
                 const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
-                res.redirect(`${FRONTEND_URL}/index.html?token=${token}`);
+                res.redirect(`http://127.0.0.1:3000/index.html?token=${token}`);
             } else {
                 const avatarUrl = `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`;
-                res.redirect(`${FRONTEND_URL}/vincular.html?discordId=${discordUser.id}&username=${discordUser.username}&avatar=${avatarUrl}`);
+                res.redirect(`http://127.0.0.1:3000/vincular.html?discordId=${discordUser.id}&username=${discordUser.username}&avatar=${avatarUrl}`);
             }
         });
     } catch (error) {
@@ -150,7 +147,7 @@ app.post('/complete-registration', (req, res) => {
     db.run(sql, [discordId, username, avatar, fivemLicense], function(err) {
         if (err) { return res.status(500).json({ message: 'Error al crear la cuenta.' }); }
         db.get('SELECT * FROM users WHERE id = ?', [this.lastID], (err, newUser) => {
-            const token = jwt.sign({ id: newUser.id, username: newUser.username, role: newUser.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
+             const token = jwt.sign({ id: newUser.id, username: newUser.username, role: newUser.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
             res.status(201).json({ message: '¡Cuenta vinculada con éxito!', token: token });
         });
     });
