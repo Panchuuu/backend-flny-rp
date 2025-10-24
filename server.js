@@ -149,7 +149,7 @@ app.post('/complete-registration', (req, res) => {
     db.run(sql, [discordId, username, avatar, fivemLicense], function(err) {
         if (err) { return res.status(500).json({ message: 'Error al crear la cuenta.' }); }
         db.get('SELECT * FROM users WHERE id = ?', [this.lastID], (err, newUser) => {
-             const token = jwt.sign({ id: newUser.id, username: newUser.username, role: newUser.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
+            const token = jwt.sign({ id: newUser.id, username: newUser.username, role: newUser.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
             res.status(201).json({ message: '¡Cuenta vinculada con éxito!', token: token });
         });
     });
