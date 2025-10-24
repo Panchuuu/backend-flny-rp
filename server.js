@@ -22,7 +22,9 @@ app.use(express.json());
 const PRODUCT_TO_ROLE_MAP = {
     'vip_bronze': process.env.VIP_BRONCE_ROLE_ID,
     'vip_silver': process.env.VIP_PLATA_ROLE_ID,
-    'vip_gold':   process.env.VIP_ORO_ROLE_ID
+    'vip_gold':   process.env.VIP_ORO_ROLE_ID,
+    'vip_diamond':   process.env.VIP_DIAMANTE_ROLE_ID,
+    'vip_esmerald':   process.env.VIP_ESMERALDA_ROLE_ID
 };
 
 // 4. Conectar y configurar la base de datos
