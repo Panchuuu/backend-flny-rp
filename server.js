@@ -6,12 +6,8 @@ const cors = require('cors');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 
-// 2. Configuración inicial
-const FIVEM_SERVER_IP = '127.0.0.1'; // <-- CAMBIA ESTO
-const FIVEM_SERVER_PORT = '30120';    // <-- CAMBIA ESTO
 
 const app = express();
-const port = 3002;
 
 let serverStatus = { online: false, players: 0, maxPlayers: 'N/A' };
 
@@ -35,7 +31,7 @@ const db = new sqlite3.Database('./flaitesnytest.db', (err) => {
     console.log('Conectado a la base de datos SQLite "flaitesnytest.db".');
     
     db.serialize(() => {
-        // Tabla de usuarios con columna "role"
+        // Tabla de usuarios
         db.run(`CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL,
@@ -45,7 +41,7 @@ const db = new sqlite3.Database('./flaitesnytest.db', (err) => {
             role TEXT DEFAULT 'user' NOT NULL
         )`);
 
-        // Tabla de cupones
+        // Tabla de cupones (Esta estructura es correcta, la mantenemos)
         db.run(`CREATE TABLE IF NOT EXISTS coupons (
             id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, type TEXT NOT NULL,
             value INTEGER NOT NULL, is_active INTEGER DEFAULT 1, expiry_date TEXT
@@ -55,13 +51,15 @@ const db = new sqlite3.Database('./flaitesnytest.db', (err) => {
             couponsToSeed.forEach(c => db.run(sql, [c.code, c.type, c.value]));
         });
 
-        // Tabla de órdenes con columna "recipient_username"
+        // --- Tabla de Órdenes ---
         db.run(`CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT NOT NULL,
             recipient_username TEXT, paypal_order_id TEXT UNIQUE NOT NULL,
             product_name TEXT NOT NULL, quantity INTEGER NOT NULL,
             total_paid_usd REAL NOT NULL, purchase_date DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
+
+        // --- Tabla de Notificaciones ---
         db.run(`CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             recipient_user_id INTEGER NOT NULL,
@@ -71,6 +69,55 @@ const db = new sqlite3.Database('./flaitesnytest.db', (err) => {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (recipient_user_id) REFERENCES users (id)
         )`);
+
+        // --- Tablas de Tienda (ESTRUCTURA CORREGIDA) ---
+        
+        // 1. Crear tabla de Categorías
+        db.run(`CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            sort_order INTEGER DEFAULT 0
+        )`, () => {
+            // 2. DESPUÉS de crear categorías, insertar la categoría
+            db.run(`INSERT OR IGNORE INTO categories (id, name, sort_order) VALUES (1, 'Membresías VIP', 1)`);
+        });
+
+        // 3. Crear tabla de Productos
+        db.run(`CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER NOT NULL,
+            product_key TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            price INTEGER NOT NULL,
+            image_url TEXT NOT NULL,
+            benefits_list TEXT,
+            border_color TEXT DEFAULT 'border-secondary',
+            is_active INTEGER DEFAULT 1,
+            FOREIGN KEY (category_id) REFERENCES categories (id)
+        )`, () => {
+            // 4. DESPUÉS de crear productos, insertar los productos
+            db.run(`INSERT OR IGNORE INTO products (category_id, product_key, name, description, price, image_url, benefits_list, border_color) 
+                    VALUES (
+                        1, 'vip_bronze', '🗽 VIP Bronce', 'Obtén beneficios iniciales y apoya al servidor.', 5000, 'assets/img/flny-vip-bronce.png', 
+                        '✅ Fila de prioridad en el servidor.\n✅ Acceso a vehículos exclusivos (Nivel 1).\n✅ Salario aumentado en un 10%.\n✅ Kit de bienvenida mensual.', 
+                        'border-warning'
+                    )`);
+
+            db.run(`INSERT OR IGNORE INTO products (category_id, product_key, name, description, price, image_url, benefits_list, border_color) 
+                    VALUES (
+                        1, 'vip_silver', '🗽 VIP Plata', 'Incluye todos los beneficios de Bronce y más.', 10000, 'assets/img/flny-vip-plata.png', 
+                        '✅ Todos los beneficios de Bronce.\n✅ Acceso a vehículos exclusivos (Nivel 2).\n✅ Customización de personaje avanzada.\n✅ Acceso a canal de Discord para VIPs.', 
+                        'border-primary'
+                    )`);
+
+            db.run(`INSERT OR IGNORE INTO products (category_id, product_key, name, description, price, image_url, benefits_list, border_color) 
+                    VALUES (
+                        1, 'vip_gold', '🗽 VIP Oro', 'El paquete definitivo para la experiencia completa.', 15000, 'assets/img/flny-vip-oro.png', 
+                        '✅ Todos los beneficios de Plata.\n✅ Acceso a todas las skins de armas.\n✅ Posibilidad de crear tu propia banda.\n✅ Soporte prioritario en Discord.', 
+                        'border-warning'
+                    )`);
+        });
     });
 });
 
@@ -128,7 +175,7 @@ app.get('/auth/discord/callback', async (req, res) => {
         const tokenResponse = await axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
             client_id: process.env.DISCORD_CLIENT_ID, client_secret: process.env.DISCORD_CLIENT_SECRET,
             grant_type: 'authorization_code', code,
-            redirect_uri: `http://localhost:3002/auth/discord/callback`
+            redirect_uri: `${process.env.BACKEND_URL}/auth/discord/callback`
         }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
 
         const { access_token } = tokenResponse.data;
@@ -139,10 +186,10 @@ app.get('/auth/discord/callback', async (req, res) => {
             if (err) return res.status(500).send("Error del servidor");
             if (user) {
                 const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
-                res.redirect(`http://127.0.0.1:3000/index.html?token=${token}`);
+                res.redirect(`${process.env.FRONTEND_URL}/index.html?token=${token}`);
             } else {
                 const avatarUrl = `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`;
-                res.redirect(`http://127.0.0.1:3000/vincular.html?discordId=${discordUser.id}&username=${discordUser.username}&avatar=${avatarUrl}`);
+                res.redirect(`${process.env.FRONTEND_URL}/vincular.html?discordId=${discordUser.id}&username=${discordUser.username}&avatar=${avatarUrl}`);
             }
         });
     } catch (error) {
@@ -159,7 +206,7 @@ app.post('/complete-registration', (req, res) => {
     db.run(sql, [discordId, username, avatar, fivemLicense], function(err) {
         if (err) { return res.status(500).json({ message: 'Error al crear la cuenta.' }); }
         db.get('SELECT * FROM users WHERE id = ?', [this.lastID], (err, newUser) => {
-             const token = jwt.sign({ id: newUser.id, username: newUser.username, role: newUser.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
+            const token = jwt.sign({ id: newUser.id, username: newUser.username, role: newUser.role }, process.env.JWT_SECRET, { expiresIn: '24h' });
             res.status(201).json({ message: '¡Cuenta vinculada con éxito!', token: token });
         });
     });
@@ -228,7 +275,7 @@ app.post('/admin/coupons', verifyAdmin, (req, res) => {
 // Activar o desactivar un cupón
 app.post('/admin/coupons/toggle', verifyAdmin, (req, res) => {
     const { id, currentStatus } = req.body;
-    const newStatus = currentStatus === 1 ? 0 : 1; // Invierte el estado (1=activo, 0=inactivo)
+    const newStatus = currentStatus === 1 ? 0 : 1;
 
     const sql = `UPDATE coupons SET is_active = ? WHERE id = ?`;
     db.run(sql, [newStatus, id], function(err) {
@@ -239,7 +286,6 @@ app.post('/admin/coupons/toggle', verifyAdmin, (req, res) => {
 
 
 app.delete('/admin/coupons/:id', verifyAdmin, (req, res) => {
-    // Obtenemos el ID de los parámetros de la URL (ej: /admin/coupons/12)
     const { id } = req.params; 
 
     const sql = 'DELETE FROM coupons WHERE id = ?';
@@ -248,7 +294,6 @@ app.delete('/admin/coupons/:id', verifyAdmin, (req, res) => {
             return res.status(500).json({ message: 'Error en la base de datos.' });
         }
         if (this.changes === 0) {
-            // Si this.changes es 0, significa que no se encontró ningún cupón con ese ID
             return res.status(404).json({ message: 'Cupón no encontrado.' });
         }
         res.status(200).json({ message: 'Cupón eliminado con éxito.' });
@@ -287,15 +332,58 @@ app.get('/api/verify', (req, res) => {
     });
 });
 
+app.get('/api/products', (req, res) => {
+    const sql = `
+        SELECT 
+            c.name as category_name,
+            p.product_key,
+            p.name,
+            p.description,
+            p.price,
+            p.image_url,
+            p.benefits_list,
+            p.border_color
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        WHERE p.is_active = 1
+        ORDER BY c.sort_order, p.price
+    `;
+    
+    db.all(sql, [], (err, rows) => {
+        if (err) {
+            console.error("Error al obtener productos:", err.message);
+            return res.status(500).json({ "error": err.message });
+        }
+        
+        // Agrupar productos por categoría
+        const categories = {};
+        rows.forEach(row => {
+            const catName = row.category_name;
+            if (!categories[catName]) {
+                categories[catName] = [];
+            }
+            categories[catName].push(row);
+        });
+
+        res.status(200).json(categories);
+    });
+});
 
 // Rutas de la tienda
 app.post('/validate-coupon', (req, res) => {
     const { code } = req.body;
-    if (!code) { /* ... */ }
+
+    if (!code) {
+        return res.status(400).json({ message: 'Se requiere un código de cupón.' });
+    }
 
     const sql = "SELECT * FROM coupons WHERE code = ? AND is_active = 1";
+    
     db.get(sql, [code.toUpperCase()], (err, coupon) => {
-        if (err) { /* ... */ }
+        if (err) {
+            console.error("Error al validar cupón:", err.message);
+            return res.status(500).json({ message: 'Error al consultar la base de datos.' });
+        }
         
         if (coupon) {
             // ¡NUEVA VERIFICACIÓN!
@@ -394,13 +482,9 @@ app.get('/api/users/search', verifyToken, (req, res) => {
     const currentUser = req.user.username; // Obtenemos el usuario que realiza la búsqueda desde el token
 
     if (!searchTerm || searchTerm.length < 2) {
-        // No buscamos si el término es muy corto para evitar resultados masivos
         return res.json([]);
     }
 
-    // La consulta busca usuarios cuyo nombre contenga el término de búsqueda.
-    // Usamos LIKE con '%' que actúa como un comodín.
-    // También nos aseguramos de no incluir al usuario que está haciendo la búsqueda.
     const sql = `
         SELECT username, avatar 
         FROM users 
@@ -479,8 +563,8 @@ app.post('/create-test-order', async (req, res) => {
 // Lógica del estado del servidor FiveM
 async function fetchServerStatus() {
     try {
-        const playersResponse = await axios.get(`http://${FIVEM_SERVER_IP}:${FIVEM_SERVER_PORT}/players.json`);
-        const infoResponse = await axios.get(`http://${FIVEM_SERVER_IP}:${FIVEM_SERVER_PORT}/info.json`);
+        const playersResponse = await axios.get(`http://${process.env.FIVEM_SERVER_IP}:${process.env.FIVEM_SERVER_PORT}/players.json`);
+        const infoResponse = await axios.get(`http://${process.env.FIVEM_SERVER_IP}:${process.env.FIVEM_SERVER_PORT}/info.json`);
         serverStatus = {
             online: true,
             players: playersResponse.data.length,
@@ -509,12 +593,14 @@ async function grantDiscordRole(discordUserId, roleId) {
         return false;
     }
 }
+
 fetchServerStatus();
 setInterval(fetchServerStatus, 30000);
 
 app.get('/server-status', (req, res) => res.status(200).json(serverStatus));
 
 // Iniciar servidor
+const port = 3002;
 app.listen(port, () => {
     console.log(`Servidor corriendo en http://localhost:${port}`);
 });
