@@ -62,6 +62,15 @@ const db = new sqlite3.Database('./flaitesnytest.db', (err) => {
             product_name TEXT NOT NULL, quantity INTEGER NOT NULL,
             total_paid_usd REAL NOT NULL, purchase_date DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
+        db.run(`CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipient_user_id INTEGER NOT NULL,
+            sender_username TEXT NOT NULL,
+            message TEXT NOT NULL,
+            is_read INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (recipient_user_id) REFERENCES users (id)
+        )`);
     });
 });
 
@@ -309,6 +318,23 @@ app.post('/validate-coupon', (req, res) => {
     });
 });
 
+app.get('/api/notifications', verifyToken, (req, res) => {
+    const userId = req.user.id;
+    const sql = "SELECT * FROM notifications WHERE recipient_user_id = ? ORDER BY created_at DESC LIMIT 10";
+    db.all(sql, [userId], (err, rows) => {
+        if (err) return res.status(500).json({ "error": err.message });
+        res.status(200).json(rows);
+    });
+});
+app.post('/api/notifications/mark-read', verifyToken, (req, res) => {
+    const userId = req.user.id;
+    const sql = "UPDATE notifications SET is_read = 1 WHERE recipient_user_id = ? AND is_read = 0";
+    db.run(sql, [userId], function(err) {
+        if (err) return res.status(500).json({ "error": err.message });
+        res.status(200).json({ message: 'Notificaciones marcadas como leídas.' });
+    });
+});
+
 app.get('/api/profile', verifyToken, async (req, res) => {
     const username = req.user.username; // Obtenemos el username del token verificado
 
@@ -394,54 +420,60 @@ app.get('/api/users/search', verifyToken, (req, res) => {
     });
 });
 
-app.post('/create-test-order', async (req, res) => { // La convertimos en async
+app.post('/create-test-order', async (req, res) => {
     const { cart, currentUser } = req.body;
     if (!cart || !currentUser || cart.length === 0) {
         return res.status(400).json({ message: 'Faltan datos.' });
     }
 
-    // Primero, buscamos el discord_id del comprador en nuestra base de datos
-    db.get('SELECT discord_id FROM users WHERE username = ?', [currentUser], async (err, user) => {
-        if (err || !user) {
-            return res.status(500).json({ message: 'No se pudo encontrar al usuario comprador.' });
-        }
-
-        const buyerDiscordId = user.discord_id;
-
-        // Guardamos las órdenes en la base de datos y asignamos roles
-        for (const item of cart) {
-            const fakePaypalId = `TEST_${Date.now()}_${Math.random()}`;
-            const recipient = item.recipient || null;
-            const totalUSD = (item.price * item.quantity / 950).toFixed(2);
-            
-            const sql = `INSERT INTO orders (username, recipient_username, paypal_order_id, product_name, quantity, total_paid_usd) VALUES (?, ?, ?, ?, ?, ?)`;
-            db.run(sql, [currentUser, recipient, fakePaypalId, item.name, item.quantity, totalUSD]);
-
-            // Lógica MEJORADA: Asignación de rol dinámica
-            const roleIdToGrant = PRODUCT_TO_ROLE_MAP[item.id]; // Busca el rol correspondiente al producto
-
-            if (roleIdToGrant) { // Si el producto tiene un rol asociado en nuestro mapa...
-                let targetDiscordId = buyerDiscordId; // Por defecto, el comprador recibe el rol
-                
-                if (item.recipient) {
-                    // Si es un regalo, buscamos el discord_id del destinatario
-                    const recipientUser = await new Promise((resolve) => {
-                        db.get('SELECT discord_id FROM users WHERE username = ?', [item.recipient], (err, row) => resolve(row));
-                    });
-                    if (recipientUser) {
-                        targetDiscordId = recipientUser.discord_id;
-                    } else {
-                        console.log(`Destinatario del regalo "${item.recipient}" no encontrado.`);
-                        continue; // Saltar al siguiente item del carro si no se encuentra al destinatario
-                    }
-                }
-                // Asignamos el rol correcto al ID de Discord correspondiente
-                await grantDiscordRole(targetDiscordId, roleIdToGrant);
-            }
-        }
-        
-        res.status(201).json({ message: 'Orden de prueba creada. Verificación de rol iniciada.' });
+    // Buscamos al comprador una sola vez.
+    const buyer = await new Promise(resolve => {
+        db.get('SELECT id, discord_id FROM users WHERE username = ?', [currentUser], (err, row) => resolve(row));
     });
+
+    if (!buyer) {
+        return res.status(500).json({ message: 'No se pudo encontrar al usuario comprador.' });
+    }
+
+    for (const item of cart) {
+        const fakePaypalId = `TEST_${Date.now()}_${Math.random()}`;
+        const totalUSD = (item.price * item.quantity / 950).toFixed(2);
+        
+        db.run(`INSERT INTO orders (username, recipient_username, paypal_order_id, product_name, quantity, total_paid_usd) VALUES (?, ?, ?, ?, ?, ?)`, 
+            [currentUser, item.recipient || null, fakePaypalId, item.name, item.quantity, totalUSD]);
+        
+        const roleIdToGrant = PRODUCT_TO_ROLE_MAP[item.id];
+        
+        if (roleIdToGrant) {
+            let targetDiscordId = buyer.discord_id; // Por defecto, el rol es para el comprador.
+
+            if (item.recipient) {
+                // Si hay un destinatario (es un regalo)...
+                const recipientUser = await new Promise(resolve => {
+                    db.get('SELECT id, discord_id FROM users WHERE username = ?', [item.recipient], (err, row) => resolve(row));
+                });
+
+                if (recipientUser) {
+                    // Si encontramos al destinatario, actualizamos el ID de Discord para el rol.
+                    targetDiscordId = recipientUser.discord_id;
+                    
+                    // --- LÓGICA DE NOTIFICACIÓN CORREGIDA ---
+                    const message = `¡Felicidades! Has recibido "${item.name}" de parte de ${currentUser}.`;
+                    // Usamos recipientUser.id, que sabemos que es correcto.
+                    db.run(`INSERT INTO notifications (recipient_user_id, sender_username, message) VALUES (?, ?, ?)`, 
+                        [recipientUser.id, currentUser, message]);
+                    
+                } else {
+                    console.log(`Destinatario del regalo "${item.recipient}" no encontrado. No se asignará rol ni se creará notificación.`);
+                    continue; // Pasamos al siguiente item del carrito.
+                }
+            }
+            // Asignamos el rol al ID de Discord correcto (sea el comprador o el destinatario).
+            await grantDiscordRole(targetDiscordId, roleIdToGrant);
+        }
+    }
+    
+    res.status(201).json({ message: 'Orden de prueba creada. Verificación de rol iniciada.' });
 });
 
 // Lógica del estado del servidor FiveM
